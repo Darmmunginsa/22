@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8" />
+  <title>เลือกตำแหน่งบนแผนที่</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <style>
+    html, body, #map {
+      height: 100%;
+      margin: 0;
+      padding: 0;
+    }
+
+    .powered {
+      position: absolute;
+      top: 50px;
+      right: 10px;
+      z-index: 999;
+      color: orange;
+      font-weight: bold;
+      font-size: 14px;
+      background: rgba(255, 255, 255, 0.6);
+      padding: 4px 8px;
+      border-radius: 8px;
+    }
+
+    .current-btn {
+      position: absolute;
+      bottom: 30vh;
+      left: 50%;
+      transform: translateX(-50%);
+      z-index: 999;
+      background: #2ecc71;
+      color: white;
+      font-weight: bold;
+      padding: 10px 16px;
+      border-radius: 20px;
+      border: none;
+      font-size: 14px;
+      box-shadow: 0 4px 10px rgba(0,0,0,0.2);
+    }
+
+    .balloon {
+      position: fixed;
+      bottom: 0;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 95%;
+      max-width: 500px;
+      height: 25vh;
+      min-height: 160px;
+      background: rgba(255, 255, 255, 0.5);
+      backdrop-filter: blur(10px);
+      border-radius: 30px;
+      box-shadow: 0 4px 15px rgba(0,0,0,0.2);
+      z-index: 999;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 10px 12px;
+      box-sizing: border-box;
+      overflow: hidden;
+      touch-action: none;
+    }
+
+    .drag-handle {
+      width: 40px;
+      height: 5px;
+      background-color: #ccc;
+      border-radius: 3px;
+      margin-bottom: 6px;
+    }
+
+    .search-area {
+      width: 100%;
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: space-between;
+      gap: 6px;
+      box-sizing: border-box;
+    }
+
+    .search-area input,
+    .search-area button {
+      width: 92%;
+      font-size: 14px;
+      padding: 10px;
+      border-radius: 10px;
+      border: 1px solid #ccc;
+      box-sizing: border-box;
+    }
+
+    .search-area button {
+      background-color: #3498db;
+      color: white;
+      font-weight: bold;
+      border: none;
+    }
+
+    .search-area button:hover {
+      background-color: #2980b9;
+    }
+  </style>
+</head>
+<body>
+  <div id="map"></div>
+  <div class="powered">Powered by DonGroups</div>
+  <button class="current-btn" onclick="goToCurrentLocation()">📍 พื้นที่ปัจจุบัน</button>
+
+  <div class="balloon" id="balloon">
+    <div class="drag-handle" id="dragHandle"></div>
+    <div class="search-area">
+      <input type="text" id="searchBox" placeholder="ค้นหาสถานที่..." />
+      <button onclick="searchLocation()">🔍 ค้นหา</button>
+    </div>
+  </div>
+
+  <script>
+    let map, marker, geocoder, autocomplete, infoWindow;
+
+    function initMap() {
+      geocoder = new google.maps.Geocoder();
+      map = new google.maps.Map(document.getElementById("map"), {
+        center: { lat: 13.7563, lng: 100.5018 },
+        zoom: 10,
+        gestureHandling: 'greedy',
+      });
+
+      infoWindow = new google.maps.InfoWindow();
+
+      autocomplete = new google.maps.places.Autocomplete(
+        document.getElementById("searchBox")
+      );
+      autocomplete.bindTo("bounds", map);
+      autocomplete.setFields(["geometry"]);
+
+      autocomplete.addListener("place_changed", () => {
+        const place = autocomplete.getPlace();
+        if (!place.geometry) {
+          alert("ไม่พบข้อมูลสถานที่จากการเลือก");
+          return;
+        }
+        const loc = place.geometry.location;
+        map.setCenter(loc);
+        placeMarkerAndCopy(loc.lat(), loc.lng());
+      });
+
+      map.addListener("click", (e) => {
+        const lat = e.latLng.lat();
+        const lng = e.latLng.lng();
+        placeMarkerAndCopy(lat, lng);
+      });
+
+      // Drag balloon
+      const balloon = document.getElementById("balloon");
+      let startY, startTop;
+
+      balloon.addEventListener("touchstart", function(e) {
+        startY = e.touches[0].clientY;
+        startTop = balloon.getBoundingClientRect().top;
+      }, { passive: true });
+
+      balloon.addEventListener("touchmove", function(e) {
+        const dy = e.touches[0].clientY - startY;
+        let newTop = startTop + dy;
+        const maxTop = window.innerHeight - 100;
+        const minTop = 50;
+        newTop = Math.max(minTop, Math.min(newTop, maxTop));
+        balloon.style.bottom = 'auto';
+        balloon.style.top = newTop + 'px';
+      }, { passive: true });
+    }
+
+    function goToCurrentLocation() {
+      if (navigator.geolocation) {
+        navigator.geolocation.getCurrentPosition((position) => {
+          const lat = position.coords.latitude;
+          const lng = position.coords.longitude;
+          map.setCenter({ lat, lng });
+          placeMarkerAndCopy(lat, lng);
+        }, () => {
+          alert("ไม่สามารถเข้าถึงตำแหน่งของคุณ");
+        });
+      } else {
+        alert("เบราว์เซอร์นี้ไม่รองรับ Geolocation");
+      }
+    }
+
+    function searchLocation() {
+      const input = document.getElementById("searchBox").value.trim();
+      if (input) {
+        geocoder.geocode({ address: input }, (results, status) => {
+          if (status === "OK") {
+            const loc = results[0].geometry.location;
+            map.setCenter(loc);
+            placeMarkerAndCopy(loc.lat(), loc.lng());
+          } else {
+            alert("ไม่พบสถานที่ที่ค้นหา: " + status);
+          }
+        });
+      }
+    }
+
+    function placeMarkerAndCopy(lat, lng) {
+      const url = `https://www.google.com/maps?q=${lat},${lng}`;
+      if (marker) marker.setMap(null);
+      marker = new google.maps.Marker({ position: { lat, lng }, map });
+
+      // Reverse Geocode
+      geocoder.geocode({ location: { lat, lng } }, (results, status) => {
+        let locationName = url;
+        if (status === "OK" && results[0]) {
+          locationName = results[0].formatted_address;
+        }
+
+        infoWindow.setContent(`
+          <div style="font-size:14px; max-width:250px;">
+            <b>${locationName}</b><br>
+            <iframe
+              width="100%" height="120" frameborder="0" style="border:0; border-radius:10px;"
+              src="https://www.google.com/maps/embed?pb=!4v0!6m8!1m7!1sCAoSLEFGMVFpcE1nSzNmcW1mNVpYY3FZb1BDVkN2TDR4d2FfUW81bTlvZ2V0clE1!2m2!1d${lat}!2d${lng}!3f0!4f0!5f1.1924812503605782"
+              allowfullscreen>
+            </iframe><br>
+            <button onclick="navigator.clipboard.writeText('${url}').then(() => alert('คัดลอกลิงก์แล้ว'))">📋 คัดลอกลิงก์</button>
+          </div>
+        `);
+
+        infoWindow.setPosition({ lat, lng });
+        infoWindow.open(map);
+
+        google.maps.event.addListenerOnce(infoWindow, 'domready', () => {
+          const iwOuter = document.querySelector('.gm-style-iw');
+          if (iwOuter) {
+            iwOuter.parentElement.style.background = 'rgba(255,255,255,0.5)';
+            iwOuter.parentElement.style.borderRadius = '16px';
+            iwOuter.parentElement.style.backdropFilter = 'blur(8px)';
+            iwOuter.parentElement.style.overflow = 'hidden';
+          }
+        });
+      });
+    }
+  </script>
+
+  <script
+    src="https://maps.googleapis.com/maps/api/js?key=AIzaSyC4h02XblNyEBG1tszHsGVLY0-dTTeiVMk&libraries=places&callback=initMap"
+    async defer
+  ></script>
+</body>
+</html>
